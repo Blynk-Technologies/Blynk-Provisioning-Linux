@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blynk-provisioning"
+version = "0.1.0"
+description = "BLE provisioning for Blynk devices - get credentials via the Blynk app, no full edge-agent stack needed"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+dependencies = [
+    "paho-mqtt==2.1.0",
+    "python-dotenv==1.0.0",
+    "bluez-peripheral==0.1.7",
+]
+
+[project.urls]
+Homepage = "https://github.com/anthony-blynk/blynk-provisioning"
+
+[tool.setuptools.packages.find]
+where = ["src"]
