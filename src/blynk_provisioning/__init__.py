@@ -9,4 +9,4 @@ from .credentials import Credentials, CredentialsRejectedError, ProvisioningErro
 
 __all__ = ["get_credentials", "Credentials", "ProvisioningError", "CredentialsRejectedError"]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"

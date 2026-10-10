@@ -194,7 +194,8 @@ sudo systemctl restart bluetooth
 
 ## Status
 
-Experimental (`0.1.0`), tested on a Raspberry Pi 5 with Raspberry Pi OS.
+Experimental, tested on Raspberry Pi 5 and Pi Zero (Raspberry Pi OS / Debian 13)
+and a Debian 12 Pi.
 The BLE/NetworkManager/ModemManager engine underneath is adapted from
 blynk-edge-agent's own `agent/ble_provisioning.py` (real, hardware-tested
 code). Issues and feedback welcome on
