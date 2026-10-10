@@ -137,6 +137,24 @@ comment rather than assuming the obvious fix is enough:
     e.g. kiwibot's 5.66 with the EATT prompt), or a paired keyboard
     surviving a session.
 
+11. **Python 3.8 (Ubuntu 20.04): construct asyncio objects inside the
+    running loop.** On Python <3.10, `asyncio.Event()` binds to whatever
+    loop exists at construction - `ProvisioningSession.__init__` creates
+    one, so building the session before `asyncio.run()` failed with "got
+    Future attached to a different loop" the moment pairing waited.
+    `provision()` now constructs the session inside the coroutine. Minimum
+    Python is 3.8 (code itself needs 3.7 per `vermin`; pip picks
+    python-dotenv 1.0.1 there automatically). Installing from a git
+    checkout on 3.8 still fails (build needs setuptools>=77 for the PEP 639
+    license field, which needs Python 3.9+) - PyPI wheel installs are fine.
+    Deliberately not reverting to the old license-table format: current
+    setuptools stops accepting it after 2027-02-18.
+
+12. **NetworkManager <1.24 has no `Device.HwAddress`** (Ubuntu 20.04 has
+    1.22) - only the type-specific `Device.Wired`/`Device.Wireless`
+    interfaces do. Without the fallback in `_hw_address()`, every device
+    failed to read in `_do_ifs` and the app was only offered "eth".
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own

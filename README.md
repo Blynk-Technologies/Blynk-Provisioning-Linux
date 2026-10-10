@@ -183,12 +183,20 @@ To pair again, replacing just that template's stored identity:
 creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", reprovision=True)
 ```
 
-## Troubleshooting: unexpected "Pair with device?" prompt on the phone
+## Troubleshooting
 
-Seen on Debian 12 (BlueZ 5.66): older BlueZ releases enable EATT by
-default (upstream turned it off in March 2023), and Android's GATT caching
-can then show a "Pair with device?" prompt mid-provisioning. Cancelling and
-retrying usually gets through; to stop it happening, disable EATT:
+**App hangs on "connecting to your device..."** - the phone is probably
+using a stale cached copy of the device's Bluetooth services from an
+earlier session. Turn Bluetooth off and on again on the phone, then retry.
+Seen on Ubuntu 20.04 (BlueZ 5.53) after re-running provisioning.
+
+**Unexpected "Pair with device?" prompt on the phone** - seen on Debian 12
+(BlueZ 5.66): older BlueZ releases enable EATT by default (upstream turned
+it off in March 2023), and the phone's GATT caching can then trigger a
+pairing prompt mid-provisioning. Cancelling and retrying usually gets
+through. To stop it happening, disable EATT - only if your
+`/etc/bluetooth/main.conf` has a `Channels` line (very old BlueZ, e.g.
+5.53, doesn't have the setting at all):
 
 ```bash
 sudo sed -i 's/^#\?Channels = .*/Channels = 1/' /etc/bluetooth/main.conf
@@ -202,6 +210,6 @@ adapted from blynk-edge-agent's own `agent/ble_provisioning.py`, which runs
 on a range of Linux hardware (Raspberry Pi 5, Compute Module 4 including
 USB Bluetooth/WiFi dongles, CompuLab IOT-GATE-iMX8, an x86 Ubuntu
 machine). This library itself has so far been tested on Raspberry Pi
-hardware running Debian 12 and 13.
+hardware running Debian 12 and 13, and an x86 laptop running Ubuntu 20.04.
 Issues and feedback welcome on
 [GitHub](https://github.com/anthony-blynk/blynk-provisioning/issues).

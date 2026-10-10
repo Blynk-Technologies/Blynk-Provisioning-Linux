@@ -128,6 +128,7 @@ NM_ROOT_PATH = "/org/freedesktop/NetworkManager"
 NM_IFACE = "org.freedesktop.NetworkManager"
 NM_DEVICE_IFACE = "org.freedesktop.NetworkManager.Device"
 NM_WIRELESS_IFACE = "org.freedesktop.NetworkManager.Device.Wireless"
+NM_WIRED_IFACE = "org.freedesktop.NetworkManager.Device.Wired"
 NM_AP_IFACE = "org.freedesktop.NetworkManager.AccessPoint"
 NM_SETTINGS_PATH = "/org/freedesktop/NetworkManager/Settings"
 NM_SETTINGS_IFACE = "org.freedesktop.NetworkManager.Settings"
@@ -520,7 +521,7 @@ class ProvisioningSession:
                     msg = {
                         "t": "if",
                         "name": name,
-                        "mac": await dev.get_hw_address(),
+                        "mac": await self._hw_address(dev, path, name),
                         "status": "ready" if state >= NM_DEVICE_STATE_ACTIVATED else "unavailable",
                         "static_ip": 1,
                     }
@@ -534,6 +535,19 @@ class ProvisioningSession:
         if not sent_any:
             self.service.send({"t": "if", "name": "eth", "status": "ready"})
         self.service.send({"t": "ifs_end"})
+
+    async def _hw_address(self, dev, path: str, name: str) -> str:
+        """Device.HwAddress only exists on NetworkManager >= 1.24; older NM
+        (confirmed on real hardware: Ubuntu 20.04, NM 1.22) only has it on
+        the type-specific Wired/Wireless interface. Without this fallback
+        every device failed to read and the app was only offered "eth"."""
+        try:
+            return await dev.get_hw_address()
+        except AttributeError:
+            specific = await _nm_interface(
+                self.bus, path, NM_WIRELESS_IFACE if name == "wifi" else NM_WIRED_IFACE
+            )
+            return await specific.get_hw_address()
 
     async def _cell_if_message(self) -> dict:
         try:
@@ -742,6 +756,7 @@ class ProvisioningSession:
         # no reason to delete/recreate the connection and force a rejoin.
         if "ip" not in self._pending:
             current_ssid = await _current_wifi_ssid(self.bus, wifi_path)
+            logger.debug(f"WiFi currently on {current_ssid!r}, app requested {ssid!r}")
             if current_ssid == ssid:
                 logger.info(f"Already connected to '{ssid}' - skipping WiFi reconfiguration")
                 return True, None
@@ -899,10 +914,16 @@ def provision(identity, fw_version: str = "unknown",
               reprovisioning: bool = False) -> bool:
     """Blocks until provisioning succeeds, is abandoned, or times out.
     Returns True only if a valid token was received."""
+    # The session must be constructed *inside* the running loop: on Python
+    # <3.10, asyncio.Event() binds to whatever loop exists at construction,
+    # so building it before asyncio.run() creates its new loop fails with
+    # "got Future attached to a different loop" the moment pairing waits
+    # (confirmed on real hardware, Ubuntu 20.04 / Python 3.8).
+    async def _run() -> bool:
+        return await ProvisioningSession(identity, fw_version, on_provisioned, reprovisioning).run()
+
     try:
-        return asyncio.run(
-            ProvisioningSession(identity, fw_version, on_provisioned, reprovisioning).run()
-        )
+        return asyncio.run(_run())
     except Exception as e:
         logger.error(f"BLE provisioning failed: {e}")
         return False
