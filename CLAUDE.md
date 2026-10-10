@@ -124,6 +124,19 @@ comment rather than assuming the obvious fix is enough:
    `publish.single()` still gets the raw paho crash (not wrapped - out
    of scope, see above).
 
+10. **Bond-forgetting deliberately diverges from the edge-agent.** The
+    edge-agent forgets *every* bonded device before a session (stale GATT
+    cache fix) - fine on a dedicated box, but on a general-purpose machine
+    that unpairs the user's keyboard/headphones. `_forget_bonded_devices()`
+    here only forgets devices recorded in `~/.blynk/ble_centrals.json`
+    (phones that bonded during one of our sessions, by identity address)
+    or with BlueZ Icon `phone`. Only *bonded* phones get recorded - an
+    unbonded phone reports a rotating resolvable private address
+    (confirmed on Pi 5 / BlueZ 5.82, where phones don't bond at all).
+    Not yet tested on real hardware: a phone that does bond (old BlueZ,
+    e.g. kiwibot's 5.66 with the EATT prompt), or a paired keyboard
+    surviving a session.
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own

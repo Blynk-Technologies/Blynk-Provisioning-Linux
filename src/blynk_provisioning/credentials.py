@@ -123,7 +123,7 @@ def _build_date() -> str:
     only changes when the firmware does. Nearest script equivalent: the
     running script's last-modified time. Falls back to now for
     `python3 -c` / interactive use, where there's no script file."""
-    script =sys.argv[0] if sys.argv else ""
+    script = sys.argv[0] if sys.argv else ""
     when = os.path.getmtime(script) if script and os.path.isfile(script) else time.time()
     return time.strftime("%b %d %Y %H:%M:%S", time.localtime(when))
 
@@ -169,6 +169,32 @@ class _Identity:
         os.chmod(new_path, 0o600)
         _chown_to_invoking_user_if_root(new_path)
         new_path.replace(self.path)
+        if created_parent:
+            _chown_to_invoking_user_if_root(self.path.parent)
+
+    # Bluetooth addresses of phones that have talked to our provisioning
+    # service, so _ble only forgets *those* bonds before a session - not a
+    # user's keyboard/headphones. Kept beside the credentials file, shared
+    # across templates (it's per-machine Bluetooth state, not per-identity).
+    def _centrals_path(self) -> Path:
+        return self.path.parent / "ble_centrals.json"
+
+    def known_centrals(self) -> set:
+        try:
+            return set(json.loads(self._centrals_path().read_text()))
+        except (OSError, ValueError, TypeError):
+            return set()
+
+    def remember_centrals(self, addresses) -> None:
+        merged = self.known_centrals() | set(addresses)
+        if not addresses or merged == self.known_centrals():
+            return
+        created_parent = not self.path.parent.exists()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        target = self._centrals_path()
+        target.write_text(json.dumps(sorted(merged)))
+        os.chmod(target, 0o600)
+        _chown_to_invoking_user_if_root(target)
         if created_parent:
             _chown_to_invoking_user_if_root(self.path.parent)
 

@@ -75,7 +75,15 @@ async def _get_adapter(bus, path: str = ADAPTER_PATH) -> Adapter:
     return Adapter(proxy)
 
 
-async def _forget_bonded_devices(bus, path: str = ADAPTER_PATH) -> None:
+async def _forget_bonded_devices(bus, known_centrals: set = frozenset(), path: str = ADAPTER_PATH) -> None:
+    """Forget stale phone bonds before a session - the edge-agent found on
+    real hardware that a phone bonded against a previous registration of
+    this GATT service can rely on a stale cached GATT database and never
+    read our characteristics. But unlike a dedicated edge-agent box, this
+    library runs on general-purpose machines, so it must NOT do what the
+    edge-agent does (forget every bond): only devices that have talked to
+    our service before (known_centrals, by Bluetooth address) or that
+    BlueZ identifies as a phone. Keyboards, mice, headphones etc. stay."""
     try:
         root_introspection = await bus.introspect("org.bluez", "/")
         root_proxy = bus.get_proxy_object("org.bluez", "/", root_introspection)
@@ -96,9 +104,15 @@ async def _forget_bonded_devices(bus, path: str = ADAPTER_PATH) -> None:
         paired = device_props.get("Paired")
         if not (paired and paired.value):
             continue
+        address = device_props["Address"].value if "Address" in device_props else None
+        icon = device_props["Icon"].value if "Icon" in device_props else None
+        alias = device_props["Alias"].value if "Alias" in device_props else address
+        if address not in known_centrals and icon != "phone":
+            logger.info(f"Leaving bonded device '{alias}' ({icon or 'unknown type'}) alone")
+            continue
         try:
             await adapter_iface.call_remove_device(device_path)
-            logger.info(f"Forgot previously bonded device {device_path} before starting BLE provisioning")
+            logger.info(f"Forgot previously bonded phone '{alias}' before starting BLE provisioning")
         except Exception as e:
             logger.warning(f"Could not remove bonded device {device_path}: {e}")
 
@@ -797,13 +811,44 @@ class ProvisioningSession:
         # path, and shouldn't assume it's safe to reboot its own machine.
         logger.info("BLE 'reboot' command received - no-op in this library")
 
+    def _known_centrals(self) -> set:
+        known = getattr(self.identity, "known_centrals", None)
+        return known() if known else set()
+
+    async def _remember_centrals(self) -> None:
+        """Record the Bluetooth address of each phone that wrote to our
+        service *and bonded* this session - only a bond can go stale, and
+        only a bonded device's Address is its stable identity address.
+        Confirmed on real hardware (Pi 5, BlueZ 5.82): a phone that never
+        bonded reports a resolvable private address (changes every few
+        minutes), which would never match anything later and would just
+        pile up in the file. Read at the end of the session, after any
+        mid-session bonding has resolved the address."""
+        remember = getattr(self.identity, "remember_centrals", None)
+        if not remember:
+            return
+        addresses = set()
+        for device_path in self._watched_devices:
+            try:
+                introspection = await self.bus.introspect("org.bluez", device_path)
+                proxy = self.bus.get_proxy_object("org.bluez", device_path, introspection)
+                device = proxy.get_interface("org.bluez.Device1")
+                if await device.get_paired():
+                    addresses.add(await device.get_address())
+            except Exception as e:
+                logger.debug(f"Could not read address of central {device_path}: {e}")
+        try:
+            remember(addresses)
+        except OSError as e:
+            logger.warning(f"Could not save known BLE centrals: {e}")
+
     async def run(self) -> bool:
         bus = await get_message_bus()
         self.bus = bus
         try:
             adapter = await _get_adapter(bus)
             await adapter.set_powered(True)
-            await _forget_bonded_devices(bus)
+            await _forget_bonded_devices(bus, self._known_centrals())
 
             await self.service.register(bus, adapter=adapter)
 
@@ -835,6 +880,8 @@ class ProvisioningSession:
                 task.cancel()
             if self._background_tasks:
                 await asyncio.gather(*self._background_tasks, return_exceptions=True)
+
+            await self._remember_centrals()
 
             try:
                 await self.service.unregister()

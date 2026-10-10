@@ -45,6 +45,11 @@ recent Debian-based systems) otherwise refuses to `pip install` outside a
 virtual environment. pip's "Running pip as the 'root' user" warning is
 expected with this install method.
 
+This puts paho-mqtt 2.x in the system-wide Python. On systems that have
+Debian's older paho-mqtt 1.x (e.g. Debian 12), other scripts using it will
+pick up 2.x too, and paho 2.0 changed its API - if that matters, use the
+virtual environment option below instead.
+
 **First pairing usually needs `sudo`** - WiFi setup goes through
 NetworkManager, which only allows it from a local console session, not over
 SSH. If the device is already on the WiFi network you choose in the app,
@@ -173,6 +178,18 @@ To pair again, replacing just that template's stored identity:
 
 ```python
 creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", reprovision=True)
+```
+
+## Troubleshooting: unexpected "Pair with device?" prompt on the phone
+
+Seen on Debian 12 (BlueZ 5.66): older BlueZ releases enable EATT by
+default (upstream turned it off in March 2023), and Android's GATT caching
+can then show a "Pair with device?" prompt mid-provisioning. Cancelling and
+retrying usually gets through; to stop it happening, disable EATT:
+
+```bash
+sudo sed -i 's/^#\?Channels = .*/Channels = 1/' /etc/bluetooth/main.conf
+sudo systemctl restart bluetooth
 ```
 
 ## Status
