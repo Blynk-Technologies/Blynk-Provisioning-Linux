@@ -84,6 +84,12 @@ comment rather than assuming the obvious fix is enough:
    run* - a `~/.blynk` dir left over root-owned from an earlier `sudo`
    run before this fix existed still needs a manual one-time
    `sudo chown <user>:<user> ~/.blynk`.
+   Second half, found later (TestPyPI install, `sudo python3` on Pi OS):
+   sudo also resets `HOME`, so `Path.home()` was `/root` and a sudo
+   pairing saved to `/root/.blynk/credentials.env` - invisible to the
+   user's normal non-sudo runs. Fixed via `_default_credentials_path()`
+   (uses `SUDO_USER`'s home when running as root via sudo; an explicit
+   `path=` is never redirected).
 
 6. **`paho`'s `loop_stop()` leaves `_thread_terminate = True` forever**,
    and `loop_forever()` never resets it. So the original

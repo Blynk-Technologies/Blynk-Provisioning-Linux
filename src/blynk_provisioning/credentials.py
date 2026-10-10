@@ -84,6 +84,25 @@ def _chown_to_invoking_user_if_root(path: Path) -> None:
         logger.warning(f"Could not chown {path} back to the invoking user: {e}")
 
 
+def _default_credentials_path() -> Path:
+    """~/.blynk/credentials.env - but under `sudo`, the *invoking* user's
+    home, not root's. Confirmed on real hardware (Pi OS, `sudo python3`):
+    sudo resets HOME, so Path.home() is /root and a sudo pairing run saved
+    credentials where the user's later non-sudo runs never look. Pairing
+    usually needs sudo (NetworkManager/polkit), so "pair once with sudo,
+    then run normally" has to land in the same file. A process genuinely
+    running as root (e.g. a systemd unit) has no SUDO_USER and keeps
+    root's home."""
+    sudo_user = os.environ.get("SUDO_USER")
+    if sudo_user and hasattr(os, "geteuid") and os.geteuid() == 0:
+        try:
+            import pwd
+            return Path(pwd.getpwnam(sudo_user).pw_dir) / ".blynk" / "credentials.env"
+        except (ImportError, KeyError):
+            pass
+    return DEFAULT_CREDENTIALS_PATH
+
+
 def _enable_debug_logging() -> None:
     """Opt-in console output for this package's own logger only (BLE
     messages to/from the phone, NetworkManager steps) - never the root
@@ -284,7 +303,7 @@ def get_credentials(template_id: str, server: Optional[str] = None,
     if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
         _enable_debug_logging()
 
-    store_path = Path(path) if path else DEFAULT_CREDENTIALS_PATH
+    store_path = Path(path) if path else _default_credentials_path()
     server_key, token_key, _ = _template_keys(template_id)
 
     if not reprovision and store_path.exists():

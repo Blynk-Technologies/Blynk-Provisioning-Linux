@@ -1,5 +1,8 @@
 # blynk-provisioning
 
+> **Unofficial and experimental.** A personal proof of concept, not a Blynk
+> product and not covered by Blynk support. Expect changes.
+
 Get a device's Blynk credentials via BLE pairing with the Blynk app, so a
 plain Python script can talk to Blynk directly - no need for the full
 [blynk-edge-agent](https://github.com/anthony-blynk/blynk-edge-agent) stack.
@@ -28,15 +31,37 @@ at all.
 
 ## Install
 
+Linux only - needs BlueZ and NetworkManager, reached over D-Bus (tested on
+Raspberry Pi OS). Not for Windows/macOS.
+
 ```bash
-pip install --break-system-packages blynk-provisioning
+sudo pip install --break-system-packages blynk-provisioning
 ```
 
-(not yet published to PyPI - for now, install from this directory: `pip install --break-system-packages .`)
+Installing with `sudo` makes it available to both `python3` and
+`sudo python3`, so the examples below work as written.
+`--break-system-packages` is needed because Raspberry Pi OS (like other
+recent Debian-based systems) otherwise refuses to `pip install` outside a
+virtual environment. pip's "Running pip as the 'root' user" warning is
+expected with this install method.
 
-Needs a real BlueZ-capable Linux host (confirmed on Raspberry Pi) - reaches
-BlueZ and NetworkManager over D-Bus, same as the edge-agent's own BLE
-provisioning. Not for Windows/macOS.
+**First pairing usually needs `sudo`** - WiFi setup goes through
+NetworkManager, which only allows it from a local console session, not over
+SSH. If the device is already on the WiFi network you choose in the app,
+pairing leaves NetworkManager alone and works without `sudo`.
+
+<details>
+<summary>Prefer a virtual environment?</summary>
+
+```bash
+python3 -m venv ~/blynk-venv
+~/blynk-venv/bin/pip install blynk-provisioning
+source ~/blynk-venv/bin/activate   # then plain python3 uses it
+```
+
+`sudo` ignores an activated venv, so for runs that need it, point it at the
+venv's Python: `sudo ~/blynk-venv/bin/python3 my_script.py`.
+</details>
 
 ## Quick test - Subscribe and print datastream updates
 
@@ -152,7 +177,8 @@ creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", reprovisi
 
 ## Status
 
-Early (`0.1.0`) - the BLE/NetworkManager/ModemManager engine underneath is
-adapted from blynk-edge-agent's own `agent/ble_provisioning.py` (real,
-hardware-tested code), same as every other hardware-facing thing in the
-parent project.
+Experimental (`0.1.0`), tested on a Raspberry Pi 5 with Raspberry Pi OS.
+The BLE/NetworkManager/ModemManager engine underneath is adapted from
+blynk-edge-agent's own `agent/ble_provisioning.py` (real, hardware-tested
+code). Issues and feedback welcome on
+[GitHub](https://github.com/anthony-blynk/blynk-provisioning/issues).
