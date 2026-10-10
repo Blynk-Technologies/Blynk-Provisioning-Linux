@@ -105,6 +105,19 @@ comment rather than assuming the obvious fix is enough:
    code under the other. Reinstall (and retest) both if both `sudo` and
    non-`sudo` runs are being exercised.
 
+9. **Blynk's broker rejects a bad/deleted token with a 3.1.1-style
+   CONNACK code even on an MQTTv5 connection** - not a valid v5 reason
+   code, so paho 2.1 crashes parsing it (`ValueError: Expected exactly
+   one name, found []`) instead of reporting a failed connect. Hit when
+   the device was deleted in the console while its token was still
+   cached locally. `get_mqtt_client()` catches this and raises
+   `CredentialsRejectedError` pointing at `get_credentials(...,
+   reprovision=True)`. Deliberately *not* auto-re-pairing on rejection -
+   a transient server problem would then wipe working credentials and
+   leave a headless script stuck advertising. `connection_kwargs()` +
+   `publish.single()` still gets the raw paho crash (not wrapped - out
+   of scope, see above).
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own

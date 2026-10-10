@@ -35,6 +35,20 @@ from dbus_next.constants import PropertyAccess
 logger = logging.getLogger(__name__)
 
 
+def _redact(message: dict) -> dict:
+    """Copy of a BLE message safe to log - the app's 'set' carries the auth
+    token, WiFi password and SIM PIN in plain text. Token keeps its last 4
+    chars (same as get_credentials()'s identity line) so it's still
+    recognizable; password/PIN are fully hidden."""
+    safe = dict(message)
+    if safe.get("blynk"):
+        safe["blynk"] = f"...{str(safe['blynk'])[-4:]}"
+    for field in ("pass", "pin"):
+        if safe.get(field):
+            safe[field] = "***"
+    return safe
+
+
 class AutoAcceptPairingAgent(BaseAgent):
     def __init__(self):
         super().__init__(AgentCapability.NO_INPUT_NO_OUTPUT)
@@ -373,7 +387,7 @@ class ProvisioningService(Service):
         pass
 
     def send(self, message: dict) -> None:
-        logger.debug(f"BLE TX: {message}")
+        logger.debug(f"phone <- {_redact(message)}")
         self.tx.changed(json.dumps(message).encode("utf-8"))
 
 
@@ -418,7 +432,7 @@ class ProvisioningSession:
             self.service.send({"t": "error", "msg": "wrong format"})
             return
 
-        logger.debug(f"BLE RX: {data}")
+        logger.debug(f"phone -> {_redact(data)}")
         handler = {
             "info": self._handle_info,
             "ifs": self._handle_ifs,
@@ -801,7 +815,6 @@ class ProvisioningSession:
             advert = FastAdvertisement(name, [SERVICE_UUID], appearance=0, timeout=0)
             await advert.register(bus, adapter=adapter)
 
-            logger.info(f"BLE provisioning: advertising as '{name}'")
             # A plain print(), not just logger.info() - this library
             # deliberately never calls logging.basicConfig() itself (that's
             # the calling application's call to make, not a library's), but

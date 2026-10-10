@@ -13,6 +13,7 @@ feature instead, which doesn't need BLE pairing per device at all.
 import json
 import logging
 import os
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,6 +41,14 @@ TOPIC_INFO = "info/mcu"
 class ProvisioningError(Exception):
     """Raised when get_credentials() can't produce a usable identity -
     BLE provisioning was abandoned, timed out, or failed outright."""
+
+
+class CredentialsRejectedError(ProvisioningError):
+    """Raised by get_mqtt_client() when the Blynk server refuses the stored
+    auth token - in practice almost always because the device was deleted
+    (or its token regenerated) on the server, leaving a dead token cached
+    locally. Not handled automatically: re-pairing is the caller's call,
+    via get_credentials(..., reprovision=True)."""
 
 
 def _template_keys(template_id: str) -> tuple:
@@ -73,6 +82,42 @@ def _chown_to_invoking_user_if_root(path: Path) -> None:
         os.chown(path, int(sudo_uid), int(sudo_gid))
     except OSError as e:
         logger.warning(f"Could not chown {path} back to the invoking user: {e}")
+
+
+def _enable_debug_logging() -> None:
+    """Opt-in console output for this package's own logger only (BLE
+    messages to/from the phone, NetworkManager steps) - never the root
+    logger, so paho/dbus-next stay quiet and a caller's own logging setup
+    is left alone. Idempotent: repeated get_credentials(debug=True) calls
+    don't stack duplicate handlers."""
+    pkg_logger = logging.getLogger("blynk_provisioning")
+    pkg_logger.setLevel(logging.DEBUG)
+    if not any(getattr(h, "_blynk_debug", False) for h in pkg_logger.handlers):
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("[blynk_provisioning] %(message)s"))
+        handler._blynk_debug = True
+        pkg_logger.addHandler(handler)
+
+
+def _build_date() -> str:
+    """info/mcu's "build" - on Edgent firmware that's compile time, so it
+    only changes when the firmware does. Nearest script equivalent: the
+    running script's last-modified time. Falls back to now for
+    `python3 -c` / interactive use, where there's no script file."""
+    script =sys.argv[0] if sys.argv else ""
+    when = os.path.getmtime(script) if script and os.path.isfile(script) else time.time()
+    return time.strftime("%b %d %Y %H:%M:%S", time.localtime(when))
+
+
+def _print_identity(prefix: str, template_id: str, server: str, auth_token: str, store_path: Path) -> None:
+    """A plain print(), not logger.info(), for the same reason as the
+    "advertising" message in _ble.py - this library never configures
+    logging, so logger output is invisible unless the caller sets it up,
+    and which identity a script ended up with is worth always seeing.
+    Only the token's last 4 chars - enough to tell identities apart
+    without leaking a usable credential into terminal scrollback/logs."""
+    print(f"{prefix}: template {template_id}, server {server}, "
+          f"auth token ...{auth_token[-4:]} ({store_path})")
 
 
 @dataclass
@@ -148,6 +193,9 @@ class Credentials:
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5)
         client.username_pw_set("device", self.auth_token)
         client.tls_set()
+        connack = {}
+        client.on_connect = lambda c, u, flags, reason_code, props: connack.update(rc=reason_code)
+        logger.debug(f"MQTT connecting to {self.server}:8883 (mqttv5)")
         client.connect(self.server, 8883)
 
         # Mandatory device checkin, not a general-purpose publish - see
@@ -164,21 +212,48 @@ class Credentials:
         payload = {
             "tmpl": self.template_id,
             "ver": self.fw_version,
-            "build": time.strftime("%b %d %Y %H:%M:%S"),
+            "build": _build_date(),
             "type": self.template_id,
             "rxbuff": 1024,
         }
         info = client.publish(TOPIC_INFO, json.dumps(payload), qos=1, retain=True)
         deadline = time.monotonic() + 5
-        while not info.is_published() and time.monotonic() < deadline:
-            client.loop(timeout=1)
+        try:
+            while not info.is_published() and time.monotonic() < deadline:
+                client.loop(timeout=1)
+                if "rc" in connack and connack["rc"].is_failure:
+                    break
+        except ValueError:
+            # Confirmed on real hardware (device deleted on the server):
+            # Blynk's broker answers a rejected mqttv5 CONNECT with a
+            # 3.1.1-style return code, which isn't a valid v5 reason code,
+            # so paho crashes parsing it ("Expected exactly one name,
+            # found []") instead of reporting a failed connect.
+            if "rc" in connack:
+                raise
+            connack["rc"] = None
+        client.on_connect = None
+        if "rc" in connack and (connack["rc"] is None or connack["rc"].is_failure):
+            reason = f" ({connack['rc']})" if connack["rc"] is not None else ""
+            raise CredentialsRejectedError(
+                f"{self.server} rejected auth token ...{self.auth_token[-4:]} for template "
+                f"{self.template_id}{reason} - most likely the device was deleted on the server. "
+                f"Re-pair with get_credentials({self.template_id!r}, reprovision=True)."
+            ) from None
+        if info.is_published():
+            logger.debug(f"MQTT device checkin sent: {TOPIC_INFO} {payload}")
+        else:
+            logger.warning(f"MQTT device checkin ({TOPIC_INFO}) not confirmed within 5s - "
+                           "the Blynk app may not show this device online")
         return client
 
 
 def get_credentials(template_id: str, server: Optional[str] = None,
                      path: Optional[os.PathLike] = None,
                      vendor_prefix: str = "Blynk",
-                     fw_version: str = "unknown") -> Credentials:
+                     fw_version: str = "unknown",
+                     debug: bool = False,
+                     reprovision: bool = False) -> Credentials:
     """Returns this machine's Blynk identity for the given template -
     reusing it from local storage if already provisioned (fast, no BLE
     involved), or running BLE provisioning (pairing with the Blynk app) if
@@ -196,11 +271,23 @@ def get_credentials(template_id: str, server: Optional[str] = None,
     edge-agent. server is normally left unset: the Blynk app supplies it
     during BLE pairing (supports regional/self-hosted servers, not just
     the public default) - only pass it to force a specific server up front.
+
+    debug=True (or BLYNK_DEBUG=1 in the environment) prints this library's
+    debug log to the console - every BLE message to/from the phone, with
+    the auth token, WiFi password and SIM PIN masked.
+
+    reprovision=True ignores any stored identity for this template and
+    pairs again via BLE, replacing just this template's entry - e.g. after
+    get_mqtt_client() raised CredentialsRejectedError because the device
+    was deleted on the server.
     """
+    if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
+        _enable_debug_logging()
+
     store_path = Path(path) if path else DEFAULT_CREDENTIALS_PATH
     server_key, token_key, _ = _template_keys(template_id)
 
-    if store_path.exists():
+    if not reprovision and store_path.exists():
         values = dotenv_values(store_path)
         stored_token = values.get(token_key)
         stored_server = values.get(server_key)
@@ -213,10 +300,14 @@ def get_credentials(template_id: str, server: Optional[str] = None,
                 stored_token = values.get("BLYNK_AUTH_TOKEN")
                 stored_server = values.get("BLYNK_SERVER")
         if stored_token and stored_server:
+            _print_identity("Using stored credentials", template_id, stored_server, stored_token, store_path)
             return Credentials(server=stored_server, auth_token=stored_token, template_id=template_id,
                                 fw_version=fw_version)
 
-    print(f"No stored credentials for template {template_id!r} at {store_path} - starting BLE pairing...")
+    if reprovision:
+        print(f"Re-pairing template {template_id!r} (ignoring stored credentials at {store_path})...")
+    else:
+        print(f"No stored credentials for template {template_id!r} at {store_path} - starting BLE pairing...")
     identity = _Identity(
         vendor_prefix=vendor_prefix,
         template_id=template_id,
@@ -224,8 +315,19 @@ def get_credentials(template_id: str, server: Optional[str] = None,
         server=server,
         path=store_path,
     )
-    ok = _ble.provision(identity, fw_version=fw_version)
+    try:
+        ok = _ble.provision(identity, fw_version=fw_version)
+    except KeyboardInterrupt:
+        # Still propagate Ctrl-C (a library shouldn't swallow it, and it
+        # must not become a ProvisioningError a caller might retry on) -
+        # just without asyncio's internal CancelledError chain attached,
+        # which otherwise buries it under ~30 lines of traceback. BlueZ
+        # drops the advert/agent itself once _ble.run()'s finally closes
+        # the D-Bus connection, so nothing is left registered.
+        print("Pairing cancelled.")
+        raise KeyboardInterrupt from None
     if not ok or not identity.auth_token or not identity.server:
         raise ProvisioningError("BLE provisioning did not complete - abandoned, timed out, or failed")
+    _print_identity("Provisioned", template_id, identity.server, identity.auth_token, store_path)
     return Credentials(server=identity.server, auth_token=identity.auth_token, template_id=template_id,
                         fw_version=fw_version)

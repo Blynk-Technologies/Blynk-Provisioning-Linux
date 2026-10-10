@@ -38,24 +38,9 @@ Needs a real BlueZ-capable Linux host (confirmed on Raspberry Pi) - reaches
 BlueZ and NetworkManager over D-Bus, same as the edge-agent's own BLE
 provisioning. Not for Windows/macOS.
 
-## Quick test - one-off publish
+## Quick test - Subscribe and print datastream updates
 
-Paste and run as-is (swap in your own template ID first):
-
-```bash
-python3 -c "
-import paho.mqtt.publish as publish
-import blynk_provisioning
-creds = blynk_provisioning.get_credentials(template_id='TMPLxxxxxxxx')
-publish.single('ds/Test', payload='42', **creds.connection_kwargs())
-"
-```
-
-First run blocks until you've paired via the Blynk app (BLE advertising
-starts, same flow as pairing a new edge-agent device). Every run after
-that returns instantly - credentials are cached in `~/.blynk/credentials.env`.
-
-## Subscribe and print incoming messages
+Paste and run as-is (swap in your own template ID for TMPLxxxxxxxx first):
 
 ```bash
 python3 -c "
@@ -68,10 +53,49 @@ client.loop_forever()
 "
 ```
 
+## One-off publish
+
+```bash
+python3 -c "
+import paho.mqtt.publish as publish
+import blynk_provisioning
+creds = blynk_provisioning.get_credentials(template_id='TMPLxxxxxxxx')
+publish.single('ds/Test', payload='42', **creds.connection_kwargs())
+"
+```
+
+The first run for a given template ID blocks until you've paired via the
+Blynk app (BLE advertising starts, same flow as pairing a new edge-agent
+device). Every run after that returns instantly - credentials are cached in `~/.blynk/credentials.env`.
+
 `get_mqtt_client()` connects for you but doesn't start the network loop - call
 `client.loop_forever()` to block and process messages, or
 `client.loop_start()` if your script needs to do other things
 concurrently.
+
+## Firmware version
+
+Blynk shows a firmware version for each device - `unknown` unless you pass
+your script's own version:
+
+```python
+creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", fw_version="1.0.3")
+```
+
+The build date shown alongside it is the script file's last-modified time.
+
+## Debug output
+
+To see every message exchanged with the Blynk app during pairing, plus the
+MQTT checkin, pass `debug=True` to `get_credentials()` or set `BLYNK_DEBUG=1`:
+
+```bash
+BLYNK_DEBUG=1 python3 my_script.py
+sudo BLYNK_DEBUG=1 python3 my_script.py   # not "BLYNK_DEBUG=1 sudo ..." - sudo drops it
+```
+
+The auth token is shown as its last 4 characters; WiFi password and SIM PIN
+are masked. Only this library's own log is enabled - paho and D-Bus stay quiet.
 
 ## Multiple templates
 
@@ -114,6 +138,16 @@ creds = blynk_provisioning.get_credentials(
     template_id="TMPLxxxxxxxx",
     path="/opt/blynk/blynk.env",
 )
+```
+
+## Re-pairing (device deleted on the server)
+
+Deleting the device in Blynk invalidates its token, but the local copy
+stays. `get_mqtt_client()` then raises `CredentialsRejectedError` saying so.
+To pair again, replacing just that template's stored identity:
+
+```python
+creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", reprovision=True)
 ```
 
 ## Status
