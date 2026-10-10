@@ -31,8 +31,9 @@ at all.
 
 ## Install
 
-Linux only - needs BlueZ and NetworkManager, reached over D-Bus (tested on
-Raspberry Pi OS). Not for Windows/macOS.
+For Linux devices with Bluetooth LE - single-board computers, compute
+modules, industrial gateways and the like. Needs BlueZ and NetworkManager,
+reached over D-Bus. Not for Windows/macOS.
 
 ```bash
 sudo pip install --break-system-packages blynk-provisioning
@@ -40,10 +41,12 @@ sudo pip install --break-system-packages blynk-provisioning
 
 Installing with `sudo` makes it available to both `python3` and
 `sudo python3`, so the examples below work as written.
-`--break-system-packages` is needed because Raspberry Pi OS (like other
-recent Debian-based systems) otherwise refuses to `pip install` outside a
-virtual environment. pip's "Running pip as the 'root' user" warning is
-expected with this install method.
+`--break-system-packages` is needed because recent Debian-based systems
+(including Raspberry Pi OS) otherwise refuse to `pip install` outside a
+virtual environment. Older systems without that restriction (e.g. Ubuntu
+22.04) have a pip that doesn't recognise the option - just leave it off
+there. pip's "Running pip as the 'root' user" warning is expected with
+this install method.
 
 This puts paho-mqtt 2.x in the system-wide Python. On systems that have
 Debian's older paho-mqtt 1.x (e.g. Debian 12), other scripts using it will
@@ -131,7 +134,7 @@ are masked. Only this library's own log is enabled - paho and D-Bus stay quiet.
 
 One identity per template, not one per script (see above) - but a machine
 can legitimately need more than one template's identity (e.g. two
-different kinds of sensor script running on the same Pi). Calling
+different kinds of sensor script running on the same machine). Calling
 `get_credentials()` with a different `template_id` provisions and stores a
 separate identity alongside any already in the same file - they're keyed
 by template internally, so they don't overwrite each other:
@@ -194,9 +197,11 @@ sudo systemctl restart bluetooth
 
 ## Status
 
-Experimental, tested on Raspberry Pi 5 and Pi Zero (Raspberry Pi OS / Debian 13)
-and a Debian 12 Pi.
-The BLE/NetworkManager/ModemManager engine underneath is adapted from
-blynk-edge-agent's own `agent/ble_provisioning.py` (real, hardware-tested
-code). Issues and feedback welcome on
+Experimental. The BLE/NetworkManager/ModemManager engine underneath is
+adapted from blynk-edge-agent's own `agent/ble_provisioning.py`, which runs
+on a range of Linux hardware (Raspberry Pi 5, Compute Module 4 including
+USB Bluetooth/WiFi dongles, CompuLab IOT-GATE-iMX8, an x86 Ubuntu
+machine). This library itself has so far been tested on Raspberry Pi
+hardware running Debian 12 and 13.
+Issues and feedback welcome on
 [GitHub](https://github.com/anthony-blynk/blynk-provisioning/issues).

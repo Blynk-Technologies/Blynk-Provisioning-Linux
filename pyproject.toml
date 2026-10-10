@@ -5,13 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "blynk-provisioning"
 dynamic = ["version"]
-description = "Unofficial, experimental Blynk.Inject-style BLE provisioning for Linux/Raspberry Pi - get a device's Blynk credentials by pairing with the Blynk app"
+description = "Unofficial, experimental Blynk.Inject-style BLE provisioning for Linux devices - get a device's Blynk credentials by pairing with the Blynk app"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
 authors = [{ name = "Anthony Elder" }]
-keywords = ["blynk", "blynk-inject", "ble", "bluetooth", "provisioning", "raspberry-pi", "iot", "mqtt"]
+keywords = ["blynk", "blynk-inject", "ble", "bluetooth", "provisioning", "linux", "raspberry-pi", "iot", "mqtt"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
