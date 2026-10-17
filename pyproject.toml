@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "blynk-provisioning"
 dynamic = ["version"]
-description = "Unofficial, experimental Blynk.Inject-style BLE provisioning for Linux devices - get a device's Blynk credentials by pairing with the Blynk app"
+description = "Early-access Blynk.Inject-style BLE provisioning for Linux devices - get a device's Blynk credentials by pairing with the Blynk app"
 readme = "README.md"
 requires-python = ">=3.8"
 license = "MIT"
@@ -28,8 +28,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/anthony-blynk/blynk-provisioning"
-Issues = "https://github.com/anthony-blynk/blynk-provisioning/issues"
+Homepage = "https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux"
+Issues = "https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux/issues"
 
 [tool.setuptools.dynamic]
 version = { attr = "blynk_provisioning.__version__" }

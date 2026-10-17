@@ -1,7 +1,9 @@
 # blynk-provisioning
 
-> **Unofficial.** A personal proof of concept, not a Blynk
-> product and not covered by Blynk support. Expect changes.
+> **Early access.** A Blynk Technologies project in early development, with
+> limited support. Feedback and bug reports are very welcome via
+> [GitHub issues](https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux/issues).
+> The API may change.
 
 Get a device's Blynk credentials via BLE pairing with the Blynk app, so a
 plain Python script can talk to Blynk directly - no need for the full
@@ -223,11 +225,11 @@ sudo systemctl restart bluetooth
 
 ## Status
 
-Experimental. The BLE/NetworkManager/ModemManager engine underneath is
+Early access. The BLE/NetworkManager/ModemManager engine underneath is
 adapted from blynk-edge-agent's own `agent/ble_provisioning.py`, which runs
 on a range of Linux hardware (Raspberry Pi 5, Compute Module 4 including
 USB Bluetooth/WiFi dongles, CompuLab IOT-GATE-iMX8, an x86 Ubuntu
 machine). This library itself has so far been tested on Raspberry Pi
 hardware running Debian 12 and 13, and an x86 laptop running Ubuntu 20.04.
 Issues and feedback welcome on
-[GitHub](https://github.com/anthony-blynk/blynk-provisioning/issues).
+[GitHub](https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux/issues).
