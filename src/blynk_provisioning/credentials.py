@@ -325,7 +325,7 @@ class Credentials:
         return client
 
 
-def get_credentials(template_id: str, server: Optional[str] = None,
+def get_credentials(template_id: str, *, server: Optional[str] = None,
                      path: Optional[os.PathLike] = None,
                      vendor_prefix: str = "Blynk",
                      fw_version: str = "unknown",
