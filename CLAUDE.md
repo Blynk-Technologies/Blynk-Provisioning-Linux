@@ -155,6 +155,32 @@ comment rather than assuming the obvious fix is enough:
     interfaces do. Without the fallback in `_hw_address()`, every device
     failed to read in `_do_ifs` and the app was only offered "eth".
 
+13. **Never publish before the CONNACK** (found 2026-10-17 from a
+    downstream BLE sensor bridge on a Pi Zero 2 W, device deleted on the
+    server). `get_mqtt_client()` used to publish the `info/mcu` checkin
+    straight after CONNECT. Blynk rejects a dead token and closes the
+    connection in ~0.3s, so writing the checkin hit the closed socket and
+    the connection reset discarded the unread rejection CONNACK - a
+    deleted device then looked like "connection lost", and the old fixed
+    5s wait treated that as success (the rejection resurfaced later as a
+    crash in the caller's paho thread). It's racy, which is why it was
+    first misread as Blynk delaying or throttling rejections - a bare
+    paho connect with nothing else queued always got the rejection in
+    0.3s. Now: phase 1 waits for the CONNACK alone (`CONNACK_TIMEOUT`,
+    `TimeoutError` if none, `ConnectionError` immediately if the socket
+    closes first - the latter also stops a 99.7% CPU busy-loop seen when
+    `loop()` was called on a dead socket); phase 2 publishes the checkin
+    only after acceptance. Network errors are deliberately not a
+    rejection, so callers never re-pair over a flaky link.
+
+14. **`configure_network=False` must report `eth`, not the real uplink
+    type** (2026-10-17, CompuLab IOT-GATE-iMX8 on WiFi): reporting
+    `{"name": "wifi", "status": "ready"}` with no `scan` flag still made
+    the Blynk app ask for WiFi credentials. `eth` is the only type the
+    current app treats as "online, nothing to configure", so the app
+    labels the device "Ethernet" even when it isn't - raised with the
+    Blynk app team.
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own

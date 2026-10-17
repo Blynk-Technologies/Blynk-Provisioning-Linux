@@ -37,6 +37,12 @@ DEFAULT_CREDENTIALS_PATH = Path.home() / ".blynk" / "credentials.env"
 # Blynk Cloud the device has really connected over MQTT.
 TOPIC_INFO = "info/mcu"
 
+# How long get_mqtt_client() waits for the server to answer the CONNECT
+# (normally well under a second - a rejection took 0.3s on real hardware)
+# before treating it as a network problem, and then for the checkin's PUBACK.
+CONNACK_TIMEOUT = 30
+INFO_TIMEOUT = 5
+
 
 class ProvisioningError(Exception):
     """Raised when get_credentials() can't produce a usable identity -
@@ -234,7 +240,11 @@ class Credentials:
         for you - call client.loop_forever() to block and process messages,
         or client.loop_start() to run it in a background thread instead;
         which one you want depends on your own script's structure, not
-        something this library should decide for you."""
+        something this library should decide for you.
+
+        Raises CredentialsRejectedError if the server refuses the token, or
+        TimeoutError (an OSError, like a DNS/TCP failure from connect()) if
+        it doesn't answer the CONNECT at all within CONNACK_TIMEOUT."""
         client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2, protocol=mqtt.MQTTv5)
         client.username_pw_set("device", self.auth_token)
         client.tls_set()
@@ -243,8 +253,7 @@ class Credentials:
         logger.debug(f"MQTT connecting to {self.server}:8883 (mqttv5)")
         client.connect(self.server, 8883)
 
-        # Mandatory device checkin, not a general-purpose publish - see
-        # TOPIC_INFO above. Pumped manually via client.loop() rather than
+        # Everything below is pumped manually via client.loop() rather than
         # loop_start()/loop_stop() - confirmed on real hardware that
         # loop_stop() leaves paho's internal _thread_terminate flag set to
         # True and loop_forever() never resets it, so a caller's own
@@ -254,20 +263,25 @@ class Credentials:
         # Calling client.loop() directly here never touches that flag at
         # all, so the client comes back genuinely untouched for whichever
         # of loop_forever()/loop_start() the caller uses next.
-        payload = {
-            "tmpl": self.template_id,
-            "ver": self.fw_version,
-            "build": _build_date(),
-            "type": self.template_id,
-            "rxbuff": 1024,
-        }
-        info = client.publish(TOPIC_INFO, json.dumps(payload), qos=1, retain=True)
-        deadline = time.monotonic() + 5
+
+        # Phase 1: wait for the CONNACK itself, accepted or rejected, with
+        # nothing else queued. Confirmed on real hardware (device deleted on
+        # the server): the checkin used to be published straight after
+        # CONNECT, and Blynk rejects-and-closes so fast that writing it hit
+        # the closed socket - the connection reset then discarded the
+        # unread rejection CONNACK, so a deleted device looked like
+        # "connection lost" (and, before the deadline existed, a 5s timeout
+        # treated as success) instead of CredentialsRejectedError.
+        deadline = time.monotonic() + CONNACK_TIMEOUT
         try:
-            while not info.is_published() and time.monotonic() < deadline:
-                client.loop(timeout=1)
-                if "rc" in connack and connack["rc"].is_failure:
-                    break
+            while "rc" not in connack and time.monotonic() < deadline:
+                rc = client.loop(timeout=1)
+                if rc != mqtt.MQTT_ERR_SUCCESS and "rc" not in connack:
+                    # Socket already gone - loop() would return instantly
+                    # every time, spinning a CPU core until the deadline
+                    # (confirmed on real hardware: 99.7% on a Pi Zero 2 W)
+                    raise ConnectionError(f"{self.server}:8883 closed the connection without "
+                                          f"answering the MQTT CONNECT ({rc})")
         except ValueError:
             # Confirmed on real hardware (device deleted on the server):
             # Blynk's broker answers a rejected mqttv5 CONNECT with a
@@ -278,17 +292,35 @@ class Credentials:
                 raise
             connack["rc"] = None
         client.on_connect = None
-        if "rc" in connack and (connack["rc"] is None or connack["rc"].is_failure):
+        if "rc" not in connack:
+            raise TimeoutError(f"No answer from {self.server}:8883 to the MQTT CONNECT within "
+                               f"{CONNACK_TIMEOUT}s - network problem, not a rejected token")
+        if connack["rc"] is None or connack["rc"].is_failure:
             reason = f" ({connack['rc']})" if connack["rc"] is not None else ""
             raise CredentialsRejectedError(
                 f"{self.server} rejected auth token ...{self.auth_token[-4:]} for template "
                 f"{self.template_id}{reason} - most likely the device was deleted on the server. "
                 f"Re-pair with get_credentials({self.template_id!r}, reprovision=True)."
             ) from None
+
+        # Phase 2: mandatory device checkin, not a general-purpose publish -
+        # see TOPIC_INFO above
+        payload = {
+            "tmpl": self.template_id,
+            "ver": self.fw_version,
+            "build": _build_date(),
+            "type": self.template_id,
+            "rxbuff": 1024,
+        }
+        info = client.publish(TOPIC_INFO, json.dumps(payload), qos=1, retain=True)
+        deadline = time.monotonic() + INFO_TIMEOUT
+        while not info.is_published() and time.monotonic() < deadline:
+            if client.loop(timeout=1) != mqtt.MQTT_ERR_SUCCESS:
+                break  # connection dropped - paho reconnects once the caller starts its loop
         if info.is_published():
             logger.debug(f"MQTT device checkin sent: {TOPIC_INFO} {payload}")
         else:
-            logger.warning(f"MQTT device checkin ({TOPIC_INFO}) not confirmed within 5s - "
+            logger.warning(f"MQTT device checkin ({TOPIC_INFO}) not confirmed within {INFO_TIMEOUT}s - "
                            "the Blynk app may not show this device online")
         return client
 
