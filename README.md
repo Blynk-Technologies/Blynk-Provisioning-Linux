@@ -1,6 +1,6 @@
 # blynk-provisioning
 
-> **Unofficial and experimental.** A personal proof of concept, not a Blynk
+> **Unofficial.** A personal proof of concept, not a Blynk
 > product and not covered by Blynk support. Expect changes.
 
 Get a device's Blynk credentials via BLE pairing with the Blynk app, so a
@@ -172,6 +172,24 @@ creds = blynk_provisioning.get_credentials(
     path="/opt/blynk/blynk.env",
 )
 ```
+
+## Devices with a pre-configured network
+
+By default the app is offered every network interface NetworkManager
+reports (WiFi, Ethernet, cellular), and pairing can reconfigure them. For
+a device whose uplink is already set up some other way - e.g. a cellular
+gateway shipped with a working SIM - turn that off:
+
+```python
+creds = blynk_provisioning.get_credentials(template_id="TMPLxxxxxxxx", configure_network=False)
+```
+
+Pairing then never touches NetworkManager/ModemManager: the app is told
+there's one interface already online and only supplies the auth token.
+The app labels it "Ethernet" even if the device is really online over
+WiFi or cellular - reporting the real type makes the current app ask for
+network settings anyway. Any network settings the app does send are
+ignored (and logged).
 
 ## Re-pairing (device deleted on the server)
 

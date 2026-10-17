@@ -298,7 +298,8 @@ def get_credentials(template_id: str, server: Optional[str] = None,
                      vendor_prefix: str = "Blynk",
                      fw_version: str = "unknown",
                      debug: bool = False,
-                     reprovision: bool = False) -> Credentials:
+                     reprovision: bool = False,
+                     configure_network: bool = True) -> Credentials:
     """Returns this machine's Blynk identity for the given template -
     reusing it from local storage if already provisioned (fast, no BLE
     involved), or running BLE provisioning (pairing with the Blynk app) if
@@ -325,6 +326,14 @@ def get_credentials(template_id: str, server: Optional[str] = None,
     pairs again via BLE, replacing just this template's entry - e.g. after
     get_mqtt_client() raised CredentialsRejectedError because the device
     was deleted on the server.
+
+    configure_network=False never touches NetworkManager/ModemManager during
+    pairing - for devices whose uplink is already set up some other way
+    (e.g. a gateway shipped with a working SIM). The app is told there's a
+    single interface already online (always reported as Ethernet - the
+    only type the app accepts without asking for network settings) and
+    only supplies a token; any WiFi/cellular/static-IP settings it sends
+    anyway are ignored.
     """
     if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
         _enable_debug_logging()
@@ -361,7 +370,7 @@ def get_credentials(template_id: str, server: Optional[str] = None,
         path=store_path,
     )
     try:
-        ok = _ble.provision(identity, fw_version=fw_version)
+        ok = _ble.provision(identity, fw_version=fw_version, configure_network=configure_network)
     except KeyboardInterrupt:
         # Still propagate Ctrl-C (a library shouldn't swallow it, and it
         # must not become a ProvisioningError a caller might retry on) -

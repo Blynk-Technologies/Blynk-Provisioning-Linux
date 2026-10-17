@@ -412,11 +412,16 @@ class ProvisioningSession:
 
     def __init__(self, identity, fw_version: str = "unknown",
                  on_provisioned: Optional[Callable[[bool], None]] = None,
-                 reprovisioning: bool = False):
+                 reprovisioning: bool = False, configure_network: bool = True):
         self.identity = identity
         self.fw_version = fw_version
         self.on_provisioned = on_provisioned or (lambda did_network_change: None)
         self.reprovisioning = reprovisioning
+        # False = never touch NetworkManager/ModemManager at all - for
+        # devices whose uplink is already set up out-of-band (e.g. a
+        # factory-configured cellular gateway). The app is told there's one
+        # interface already online, so it should only ever send a token.
+        self.configure_network = configure_network
         self.service = ProvisioningService(self._on_rx)
         self.bus = None
         self._pending = {}
@@ -500,6 +505,16 @@ class ProvisioningSession:
 
     async def _do_ifs(self) -> None:
         self.service.send({"t": "ifs_start"})
+        if not self.configure_network:
+            # Always "eth", even when the real uplink is WiFi/cellular - the
+            # app labels it Ethernet, but confirmed on real hardware (Blynk
+            # app, 2026-10-17) that reporting the real type instead, e.g.
+            # {"name": "wifi", "status": "ready"} with no scan flag, makes
+            # the app ask for WiFi credentials anyway. eth is the only type
+            # it treats as "online, nothing to configure".
+            self.service.send({"t": "if", "name": "eth", "status": "ready"})
+            self.service.send({"t": "ifs_end"})
+            return
         try:
             nm = await _nm_interface(self.bus, NM_ROOT_PATH, NM_IFACE)
             device_paths = await nm.call_get_devices()
@@ -573,7 +588,7 @@ class ProvisioningSession:
     async def _do_scan(self) -> None:
         self.service.send({"t": "scan_start"})
         try:
-            wifi_path = await _get_wifi_device_path(self.bus)
+            wifi_path = await _get_wifi_device_path(self.bus) if self.configure_network else None
             if wifi_path is None:
                 self.service.send({"t": "error", "msg": "no wifi"})
                 self.service.send({"t": "scan_end"})
@@ -615,7 +630,18 @@ class ProvisioningSession:
         if unknown:
             self.service.send({"t": "set_fail"})
             return
-        for field in ("if", "blynk", "host", "ssid", "pass", "pin", "apn", "ip", "mask", "gw", "dns", "dns2"):
+        fields = ("if", "blynk", "host", "ssid", "pass", "pin", "apn", "ip", "mask", "gw", "dns", "dns2")
+        if not self.configure_network:
+            # The app always echoes back {"if": "eth"} - the interface we
+            # reported - so that alone isn't worth warning about
+            ignored = [f for f in fields if f in data and f not in ("blynk", "host")
+                       and not (f == "if" and data[f] == "eth")]
+            if ignored:
+                # Ignored rather than set_fail'd - failing would abort the
+                # whole pairing over settings this device never wanted
+                logger.warning(f"Ignoring network settings from the app (configure_network=False): {ignored}")
+            fields = ("blynk", "host")
+        for field in fields:
             if field in data:
                 self._pending[field] = data[field]
         self.service.send({"t": "set_ok"})
@@ -632,6 +658,8 @@ class ProvisioningSession:
     async def _do_connect(self, token: str, host) -> None:
         interface = self._pending.get("if")
         ssid = self._pending.get("ssid")
+        if not self.configure_network:
+            interface = ssid = None  # already never set by _handle_set - belt and braces
         did_network_change = False
 
         if interface == "cell":
@@ -921,7 +949,7 @@ class ProvisioningSession:
 
 def provision(identity, fw_version: str = "unknown",
               on_provisioned: Optional[Callable[[bool], None]] = None,
-              reprovisioning: bool = False) -> bool:
+              reprovisioning: bool = False, configure_network: bool = True) -> bool:
     """Blocks until provisioning succeeds, is abandoned, or times out.
     Returns True only if a valid token was received."""
     # The session must be constructed *inside* the running loop: on Python
@@ -930,7 +958,8 @@ def provision(identity, fw_version: str = "unknown",
     # "got Future attached to a different loop" the moment pairing waits
     # (confirmed on real hardware, Ubuntu 20.04 / Python 3.8).
     async def _run() -> bool:
-        return await ProvisioningSession(identity, fw_version, on_provisioned, reprovisioning).run()
+        return await ProvisioningSession(identity, fw_version, on_provisioned, reprovisioning,
+                                         configure_network).run()
 
     try:
         return asyncio.run(_run())
