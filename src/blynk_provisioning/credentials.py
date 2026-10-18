@@ -155,6 +155,7 @@ class _Identity:
     auth_token: Optional[str]
     server: Optional[str]
     path: Path
+    template_name: str = "Device"
 
     def save(self) -> None:
         created_parent = not self.path.parent.exists()
@@ -328,6 +329,7 @@ class Credentials:
 def get_credentials(template_id: str, *, server: Optional[str] = None,
                      path: Optional[os.PathLike] = None,
                      vendor_prefix: str = "Blynk",
+                     template_name: str = "Device",
                      fw_version: str = "unknown",
                      debug: bool = False,
                      reprovision: bool = False,
@@ -349,6 +351,11 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
     edge-agent. server is normally left unset: the Blynk app supplies it
     during BLE pairing (supports regional/self-hosted servers, not just
     the public default) - only pass it to force a specific server up front.
+
+    vendor_prefix and template_name make up the name the device advertises
+    over BLE and shows in the app - "<vendor_prefix> <template_name>-XXXX",
+    the same scheme (and 29-byte limit) as Edgent's BLYNK_VENDOR_PREFIX /
+    BLYNK_TEMPLATE_NAME. Defaults give "Blynk Device-XXXX".
 
     debug=True (or BLYNK_DEBUG=1 in the environment) prints this library's
     debug log to the console - every BLE message to/from the phone, with
@@ -400,6 +407,7 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
         auth_token=None,
         server=server,
         path=store_path,
+        template_name=template_name,
     )
     try:
         ok = _ble.provision(identity, fw_version=fw_version, configure_network=configure_network)

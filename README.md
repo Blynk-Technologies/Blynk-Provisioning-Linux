@@ -149,16 +149,23 @@ door_creds = blynk_provisioning.get_credentials(template_id="TMPL_doorsensor")
 Both get their own BLE pairing ceremony the first time, and both are
 cached in `~/.blynk/credentials.env` from then on.
 
-## Custom vendor prefix
+## Device name: vendor prefix and template name
 
-Defaults to advertising as `"Blynk Device-XXXX"` over BLE. Enterprise/
-white-labeled Blynk apps are typically configured to only discover devices
-broadcasting their own vendor prefix, so pass yours if that applies:
+The device advertises over BLE, and shows in the app, as
+`"<vendor_prefix> <template_name>-XXXX"` - `"Blynk Device-XXXX"` by
+default. Same scheme as Edgent's `BLYNK_VENDOR_PREFIX` /
+`BLYNK_TEMPLATE_NAME`, including its 29-byte limit (if the parts don't
+fit, the template name is shortened first).
+
+Pass your template's name so users see what kind of device they're adding.
+Enterprise/white-labeled Blynk apps typically only discover devices
+broadcasting their own vendor prefix, so pass that too if it applies:
 
 ```python
 creds = blynk_provisioning.get_credentials(
     template_id="TMPLxxxxxxxx",
-    vendor_prefix="Acme",
+    template_name="Thermometer",
+    vendor_prefix="Acme",        # -> "Acme Thermometer-XXXX"
 )
 ```
 

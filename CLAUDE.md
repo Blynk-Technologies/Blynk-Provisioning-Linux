@@ -181,6 +181,17 @@ comment rather than assuming the obvious fix is enough:
     labels the device "Ethernet" even when it isn't - raised with the
     Blynk app team.
 
+15. **App's "already connected" choice: WiFi with no SSID.** The app team's
+    fix for #14 (QA Android build, 2026-10-17 - not iOS or production as
+    of 2026-10-18) lets the user pick a WiFi interface reported "ready"
+    without entering settings; the app then sends `{"if": "wifi"}` with no
+    `ssid`. `_connect_wifi` treats that as "keep the current connection"
+    (net_fail `not_found` if WiFi isn't actually up). Before, it crashed on
+    `ssid=None`. Keep #14's `eth` workaround, and don't add the cellular
+    equivalent (cellular `if` has no `status` at all, and connecting
+    always rebuilds the connection), until the app change ships on both
+    platforms.
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own

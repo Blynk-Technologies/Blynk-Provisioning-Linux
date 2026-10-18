@@ -358,8 +358,39 @@ def _short_suffix(unique_id: str, length: int = 4) -> str:
     return "".join(chars)
 
 
-def device_name(vendor_prefix: str = "Blynk") -> str:
-    return f"{vendor_prefix} Device-{_short_suffix(_device_serial())}"
+MAX_DEVICE_NAME_LEN = 29  # bytes - same limit as Edgent (Arduino and ESP-IDF)
+
+
+def _truncate_utf8(text: str, max_bytes: int) -> str:
+    return text.encode("utf-8")[:max(max_bytes, 0)].decode("utf-8", errors="ignore")
+
+
+def device_name(vendor_prefix: str = "Blynk", template_name: str = "Device") -> str:
+    """'<vendor prefix> <template name>-<unique>', ported from Edgent's
+    systemGetFullName() / edgent_utils_get_device_name(): capped at 29
+    bytes, and when it doesn't fit the vendor prefix wins, then the unique
+    suffix, then the template name. The template name is dropped entirely
+    when it equals the prefix (no "Acme Acme-XXXX")."""
+    unique = _short_suffix(_device_serial())
+    budget = MAX_DEVICE_NAME_LEN
+
+    result = _truncate_utf8(vendor_prefix, budget)
+    budget -= len(result.encode("utf-8"))
+
+    # Reserve room for "-<unique>"
+    unique_len = min(len(unique), max(budget - 1, 0))
+    if unique_len:
+        budget -= unique_len + 1
+
+    if vendor_prefix != template_name:
+        separator = 1 if result else 0
+        name = _truncate_utf8(template_name, budget - separator)
+        if name:
+            result += (" " if separator else "") + name
+
+    if unique_len:
+        result += ("-" if result else "") + unique[:unique_len]
+    return result
 
 
 class FastAdvertisement(Advertisement):
@@ -497,7 +528,7 @@ class ProvisioningSession:
             "tmpl_id": self.identity.template_id,
             "fw_type": "0",
             "fw_ver": self.fw_version,
-            "name": device_name(self.identity.vendor_prefix),
+            "name": device_name(self.identity.vendor_prefix, self.identity.template_name),
         })
 
     def _handle_ifs(self, data) -> None:
@@ -777,6 +808,24 @@ class ProvisioningSession:
         if wifi_path is None:
             return False, "generic"
 
+        # No SSID = "use the WiFi connection that's already up". The Blynk
+        # app (QA build of 2026-10-17, changed for a ticket raised from this
+        # project - not something Edgent does) sends {"if": "wifi"} with no
+        # ssid when the user picks a WiFi interface we reported as "ready".
+        # Confirmed on real hardware (Pi 5, 2026-10-18): before this, it
+        # crashed building settings for ssid=None ("Cannot serialize Python
+        # type None") and the app fell back to asking for a network.
+        if not ssid:
+            current_ssid = await _current_wifi_ssid(self.bus, wifi_path)
+            if current_ssid is not None and "ip" not in self._pending:
+                logger.info(f"App chose the existing WiFi connection ('{current_ssid}') - leaving it as is")
+                return True, None
+            if current_ssid is None:
+                logger.warning("App chose WiFi without a network name, but WiFi isn't connected")
+                return False, "not_found"
+            logger.warning("App sent static IP settings without a WiFi network name - not supported")
+            return False, "generic"
+
         # Already joined to exactly this network and no static-IP change
         # was requested alongside it - nothing to do. If NM is ACTIVATED on
         # this SSID at all, the stored credentials must already be correct
@@ -909,7 +958,7 @@ class ProvisioningSession:
             await agent.register(bus)
             logger.info("BLE pairing agent registered with BlueZ")
 
-            name = device_name(self.identity.vendor_prefix)
+            name = device_name(self.identity.vendor_prefix, self.identity.template_name)
             advert = FastAdvertisement(name, [SERVICE_UUID], appearance=0, timeout=0)
             await advert.register(bus, adapter=adapter)
 
