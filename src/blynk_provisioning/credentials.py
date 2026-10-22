@@ -171,11 +171,25 @@ class _Identity:
         existing[token_key] = self.auth_token or ""
         existing[template_key] = self.template_id
 
+        # Temp file + fsync + rename (+ fsync the directory): a reboot or
+        # power cut at any point leaves either the old file or the new one,
+        # never a truncated or NUL-filled one. The fsyncs are what makes
+        # the rename safe - Robustel's power-cut tests on RobustOS lost
+        # the last ~25 s of unsynced writes.
         new_path = self.path.with_suffix(".new")
-        new_path.write_text("".join(f"{key}={value}\n" for key, value in existing.items()))
+        fd = os.open(new_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write("".join(f"{key}={value}\n" for key, value in existing.items()))
+            f.flush()
+            os.fsync(f.fileno())
         os.chmod(new_path, 0o600)
         _chown_to_invoking_user_if_root(new_path)
         new_path.replace(self.path)
+        dir_fd = os.open(self.path.parent, os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
         if created_parent:
             _chown_to_invoking_user_if_root(self.path.parent)
 
