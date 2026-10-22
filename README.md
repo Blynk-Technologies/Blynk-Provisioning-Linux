@@ -5,7 +5,7 @@
 > [GitHub issues](https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux/issues).
 > Breaking API changes will only come with a new major version.
 
-Get a device's Blynk credentials via BLE pairing with the Blynk app, so a
+Get a Linux device's Blynk credentials via BLE pairing with the Blynk app, so a
 plain Python script can talk to Blynk directly - no need for the full
 [blynk-edge-agent](https://github.com/anthony-blynk/blynk-edge-agent) stack.
 
