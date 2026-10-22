@@ -238,7 +238,8 @@ on a range of Linux hardware (Raspberry Pi 5, Compute Module 4 including
 USB Bluetooth/WiFi dongles, CompuLab IOT-GATE-iMX8, an x86 Ubuntu
 machine). This library itself has so far been tested on Raspberry Pi
 hardware running Debian 12 and 13 (64-bit, and 32-bit Raspberry Pi OS on
-a Pi Zero 2 W, including inside Docker), a CompuLab IOT-GATE-iMX8, and an
-x86 laptop running Ubuntu 20.04.
+a Pi Zero 2 W, including inside Docker), a CompuLab IOT-GATE-iMX8, a
+32-bit i.MX6 ULL gateway running Debian 11, and an x86 laptop running
+Ubuntu 20.04.
 Issues and feedback welcome on
 [GitHub](https://github.com/Blynk-Technologies/Blynk-Provisioning-Linux/issues).
