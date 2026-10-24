@@ -192,6 +192,44 @@ comment rather than assuming the obvious fix is enough:
     always rebuilds the connection), until the app change ships on both
     platforms.
 
+## Dynamic templates (1.2.0, 1.3.0) - found on real hardware 2026-10-24
+
+The Blynk Modbus gateway (C:\Blynk\Modbus) pairs with no template built in;
+these are the protocol facts that made it work (CompuLab + Android app,
+developer account):
+
+- `fw_type: "DYNAMIC"` in the BLE info reply makes the (newer, Compose)
+  Android app offer a template picker; `tmpl_id` can be any placeholder.
+  Developer accounts only; iOS untested.
+- After the pick the app sends the template as **`"templateId"` in the BLE
+  `set`** (undocumented). Rejecting unknown set keys = `set_fail` = "device
+  configuration failed" in the app - fixed in 1.2.0, stored as
+  `BLYNK_ASSIGNED_TEMPLATE_ID_<template_id>`, exposed as
+  `Credentials.assigned_template_id` / `effective_template_id`.
+- **"Reconfigure device"** (MQTT `downlink/reconfigure`, empty payload):
+  the app then **rejects a board reporting a different template** from the
+  device ("You've chosen the wrong device" - WrongTemplateId, reconfigure
+  only), and its `set` carries **no templateId and a new token**. 1.3.0's
+  `get_credentials(..., reprovision=True, keep_template=True)` reports the
+  assigned template as tmpl_id/fw_type and keeps it. Without
+  keep_template (a deleted device) it re-pairs as DYNAMIC.
+- `configure_network=True` on a CompuLab lists every NM device: two
+  unplugged Ethernet ports show as two identical "Ethernet" entries in the
+  app, plus Wi-Fi and cellular. Listing only Ethernet ports with a cable was
+  offered and deferred by the user.
+- Test harness: `C:\Blynk\generic-fw\tools\dynamic_test.py` (pairs with
+  chosen tmpl_id/fw_type, then holds an MQTT session).
+
+## Releases
+
+No CI. A "Release X.Y.Z" commit bumping `__version__` in
+`src/blynk_provisioning/__init__.py`, an annotated tag `vX.Y.Z`, push
+master + tag, `python -m build` + `twine check`, then the **user** uploads
+to PyPI (`twine upload` with their ~/.pypirc - Claude's auto-mode refuses
+PyPI publishing). Then a GitHub release on the tag in the existing style
+("**New:** / **Fixed:** / Tested on: / Install:", no assets). 1.3.0 was
+released this way 2026-10-24. Asking before any version bump still applies.
+
 ## Workflow preferences carried over from the parent project's sessions
 
 These were explicit corrections from the user in blynk-edge-agent's own
