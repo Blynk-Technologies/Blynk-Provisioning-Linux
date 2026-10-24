@@ -246,6 +246,12 @@ class Credentials:
     # "DYNAMIC" + fw_type "DYNAMIC" -> the user picked one in the app)
     assigned_template_id: Optional[str] = None
 
+    @property
+    def effective_template_id(self) -> str:
+        """The template this device is actually on: the one the app assigned
+        during a dynamic-template pairing, otherwise template_id."""
+        return self.assigned_template_id or self.template_id
+
     def connection_kwargs(self, qos: int = 1) -> dict:
         """Ready to spread into paho.mqtt.publish.single()/multiple() for a
         one-shot publish - confirmed on real hardware that a quick connect-
@@ -335,12 +341,11 @@ class Credentials:
 
         # Phase 2: mandatory device checkin, not a general-purpose publish -
         # see TOPIC_INFO above
-        tmpl = self.assigned_template_id or self.template_id
         payload = {
-            "tmpl": tmpl,
+            "tmpl": self.effective_template_id,
             "ver": self.fw_version,
             "build": _build_date(),
-            "type": tmpl,
+            "type": self.effective_template_id,
             "rxbuff": 1024,
         }
         info = client.publish(TOPIC_INFO, json.dumps(payload), qos=1, retain=True)
@@ -405,12 +410,14 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
     only supplies a token; any WiFi/cellular/static-IP settings it sends
     anyway are ignored.
 
-    fw_type is the "fw_type" the app sees in the BLE info reply. The app
-    uses it for template selection: "DYNAMIC" makes it offer a template
-    picker (newer Android flow, developer accounts only), and with
-    template_id="DYNAMIC" the older flow treats it as a blueprint's template
-    ID and matches the user's template installed from that blueprint. The
-    default "0" means neither.
+    fw_type is the "fw_type" the app sees in the BLE info reply. With
+    template_id="DYNAMIC" and fw_type="DYNAMIC", the app lets the user pick
+    the template during pairing (Android, developer accounts) - the pick is
+    returned as Credentials.assigned_template_id, and
+    Credentials.effective_template_id gives whichever applies. Stored
+    credentials stay keyed by template_id ("DYNAMIC"), so one credentials
+    file holds one dynamic identity - use a separate path for more. The
+    default "0" means no template selection.
     """
     if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
         _enable_debug_logging()

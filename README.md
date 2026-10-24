@@ -200,6 +200,43 @@ WiFi or cellular - reporting the real type makes the current app ask for
 network settings anyway. Any network settings the app does send are
 ignored (and logged).
 
+## Dynamic templates (template chosen in the app)
+
+Instead of building a template ID into the device, you can let the user
+pick the template in the Blynk app while pairing:
+
+```python
+creds = blynk_provisioning.get_credentials(template_id="DYNAMIC", fw_type="DYNAMIC")
+print(creds.effective_template_id)   # e.g. "TMPL4TuK3CZDs" - the one picked in the app
+```
+
+The app shows a template picker during pairing, and the device comes
+online under the template the user chose. That choice is saved with the
+credentials and also returned as `creds.assigned_template_id`.
+`effective_template_id` is the assigned template if there is one,
+otherwise `template_id`, so code that needs the device's real template
+can always use it. `creds.template_id` stays `"DYNAMIC"`.
+
+Stored credentials are keyed by the `template_id` you pass, so later runs
+calling `get_credentials(template_id="DYNAMIC", ...)` get the same device
+back without pairing. That also means one credentials file holds one
+dynamic identity: a second script on the same machine calling it with
+`"DYNAMIC"` gets the *same* device (and the two disconnect each other).
+To run several independently-chosen devices on one machine, give each its
+own file:
+
+```python
+creds = blynk_provisioning.get_credentials(
+    template_id="DYNAMIC", fw_type="DYNAMIC",
+    path="/home/pi/.blynk/pump.env",
+)
+```
+
+To pick a different template later, re-pair with `reprovision=True`.
+
+Currently supported by the Blynk Android app for developer accounts;
+not yet tested with the iOS app.
+
 ## Re-pairing (device deleted on the server)
 
 Deleting the device in Blynk invalidates its token, but the local copy
