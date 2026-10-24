@@ -369,7 +369,8 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
                      debug: bool = False,
                      reprovision: bool = False,
                      configure_network: bool = True,
-                     fw_type: str = "0") -> Credentials:
+                     fw_type: str = "0",
+                     keep_template: bool = False) -> Credentials:
     """Returns this machine's Blynk identity for the given template -
     reusing it from local storage if already provisioned (fast, no BLE
     involved), or running BLE provisioning (pairing with the Blynk app) if
@@ -418,6 +419,16 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
     credentials stay keyed by template_id ("DYNAMIC"), so one credentials
     file holds one dynamic identity - use a separate path for more. The
     default "0" means no template selection.
+
+    keep_template=True (with reprovision=True) re-pairs the same device
+    keeping its assigned template - for the Blynk app's "Reconfigure
+    device" (MQTT downlink/reconfigure). The app rejects a board that
+    reports a different template from the device being reconfigured
+    ("You've chosen the wrong device"), so the BLE info reply reports the
+    assigned template as tmpl_id and fw_type instead of the DYNAMIC
+    placeholder, and it's kept when the app's set carries no templateId
+    (a reconfigure doesn't). Leave it False after the device was deleted:
+    the gateway is then DYNAMIC again and the user picks a template.
     """
     if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
         _enable_debug_logging()
@@ -447,6 +458,11 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
         print(f"Re-pairing template {template_id!r} (ignoring stored credentials at {store_path})...")
     else:
         print(f"No stored credentials for template {template_id!r} at {store_path} - starting BLE pairing...")
+    kept_template = None
+    if keep_template and store_path.exists():
+        kept_template = dotenv_values(store_path).get(_assigned_template_key(template_id)) or None
+        if kept_template:
+            print(f"Keeping assigned template {kept_template} (reconfigure)")
     identity = _Identity(
         vendor_prefix=vendor_prefix,
         template_id=template_id,
@@ -454,6 +470,7 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
         server=server,
         path=store_path,
         template_name=template_name,
+        assigned_template_id=kept_template,
     )
     try:
         ok = _ble.provision(identity, fw_version=fw_version, configure_network=configure_network,

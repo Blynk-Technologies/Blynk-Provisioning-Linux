@@ -525,11 +525,15 @@ class ProvisioningSession:
         props_iface.on_properties_changed(on_properties_changed)
 
     def _handle_info(self, data) -> None:
+        # A template kept for a reconfigure (get_credentials keep_template)
+        # is reported as both: the app checks the board still reports the
+        # template of the device it's reconfiguring
+        kept = getattr(self.identity, "assigned_template_id", None)
         self.service.send({
             "t": "info",
             "vendor": self.identity.vendor_prefix,
-            "tmpl_id": self.identity.template_id,
-            "fw_type": self.fw_type,
+            "tmpl_id": kept or self.identity.template_id,
+            "fw_type": kept or self.fw_type,
             "fw_ver": self.fw_version,
             "name": device_name(self.identity.vendor_prefix, self.identity.template_name),
         })
@@ -730,7 +734,9 @@ class ProvisioningSession:
         self.identity.auth_token = token
         if host:
             self.identity.server = host
-        self.identity.assigned_template_id = self._pending.get("templateId")
+        # A reconfigure's set carries no templateId - keep the one we had
+        self.identity.assigned_template_id = (self._pending.get("templateId")
+                                              or getattr(self.identity, "assigned_template_id", None))
         self.identity.save()
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: self.on_provisioned(did_network_change)
