@@ -121,7 +121,8 @@ SERVICE_UUID = "95e30001-5737-45a9-a092-a88e2e5dd659"
 RX_UUID = "95e30002-5737-45a9-a092-a88e2e5dd659"
 TX_UUID = "95e30003-5737-45a9-a092-a88e2e5dd659"
 
-KNOWN_SET_FIELDS = {"if", "ssid", "pass", "pin", "apn", "blynk", "host", "ip", "mask", "gw", "dns", "dns2", "save"}
+KNOWN_SET_FIELDS = {"if", "ssid", "pass", "pin", "apn", "blynk", "host", "ip", "mask", "gw", "dns", "dns2", "save",
+                    "templateId"}
 
 NM_BUS_NAME = "org.freedesktop.NetworkManager"
 NM_ROOT_PATH = "/org/freedesktop/NetworkManager"
@@ -443,9 +444,11 @@ class ProvisioningSession:
 
     def __init__(self, identity, fw_version: str = "unknown",
                  on_provisioned: Optional[Callable[[bool], None]] = None,
-                 reprovisioning: bool = False, configure_network: bool = True):
+                 reprovisioning: bool = False, configure_network: bool = True,
+                 fw_type: str = "0"):
         self.identity = identity
         self.fw_version = fw_version
+        self.fw_type = fw_type
         self.on_provisioned = on_provisioned or (lambda did_network_change: None)
         self.reprovisioning = reprovisioning
         # False = never touch NetworkManager/ModemManager at all - for
@@ -526,7 +529,7 @@ class ProvisioningSession:
             "t": "info",
             "vendor": self.identity.vendor_prefix,
             "tmpl_id": self.identity.template_id,
-            "fw_type": "0",
+            "fw_type": self.fw_type,
             "fw_ver": self.fw_version,
             "name": device_name(self.identity.vendor_prefix, self.identity.template_name),
         })
@@ -672,7 +675,10 @@ class ProvisioningSession:
                 # whole pairing over settings this device never wanted
                 logger.warning(f"Ignoring network settings from the app (configure_network=False): {ignored}")
             fields = ("blynk", "host")
-        for field in fields:
+        # templateId: the template the user picked in the app when we
+        # advertised fw_type "DYNAMIC" (seen 2026-10-24, Android, developer
+        # account) - not a network setting, so kept either way
+        for field in fields + ("templateId",):
             if field in data:
                 self._pending[field] = data[field]
         self.service.send({"t": "set_ok"})
@@ -724,6 +730,7 @@ class ProvisioningSession:
         self.identity.auth_token = token
         if host:
             self.identity.server = host
+        self.identity.assigned_template_id = self._pending.get("templateId")
         self.identity.save()
         await asyncio.get_event_loop().run_in_executor(
             None, lambda: self.on_provisioned(did_network_change)
@@ -998,7 +1005,8 @@ class ProvisioningSession:
 
 def provision(identity, fw_version: str = "unknown",
               on_provisioned: Optional[Callable[[bool], None]] = None,
-              reprovisioning: bool = False, configure_network: bool = True) -> bool:
+              reprovisioning: bool = False, configure_network: bool = True,
+              fw_type: str = "0") -> bool:
     """Blocks until provisioning succeeds, is abandoned, or times out.
     Returns True only if a valid token was received."""
     # The session must be constructed *inside* the running loop: on Python
@@ -1008,7 +1016,7 @@ def provision(identity, fw_version: str = "unknown",
     # (confirmed on real hardware, Ubuntu 20.04 / Python 3.8).
     async def _run() -> bool:
         return await ProvisioningSession(identity, fw_version, on_provisioned, reprovisioning,
-                                         configure_network).run()
+                                         configure_network, fw_type).run()
 
     try:
         return asyncio.run(_run())

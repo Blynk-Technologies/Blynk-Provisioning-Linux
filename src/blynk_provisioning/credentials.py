@@ -69,6 +69,10 @@ def _template_keys(template_id: str) -> tuple:
     )
 
 
+def _assigned_template_key(template_id: str) -> str:
+    return f"BLYNK_ASSIGNED_TEMPLATE_ID_{template_id}"
+
+
 def _chown_to_invoking_user_if_root(path: Path) -> None:
     """BLE/NetworkManager D-Bus calls need root (see README), so a first
     provisioning run is normally done via `sudo` - without this, the saved
@@ -156,6 +160,9 @@ class _Identity:
     server: Optional[str]
     path: Path
     template_name: str = "Device"
+    # The template the app assigned during pairing (its "templateId" set
+    # field), when template_id was a placeholder like "DYNAMIC"
+    assigned_template_id: Optional[str] = None
 
     def save(self) -> None:
         created_parent = not self.path.parent.exists()
@@ -170,6 +177,11 @@ class _Identity:
         existing[server_key] = self.server or ""
         existing[token_key] = self.auth_token or ""
         existing[template_key] = self.template_id
+        assigned_key = _assigned_template_key(self.template_id)
+        if self.assigned_template_id:
+            existing[assigned_key] = self.assigned_template_id
+        else:
+            existing.pop(assigned_key, None)
 
         # Temp file + fsync + rename (+ fsync the directory): a reboot or
         # power cut at any point leaves either the old file or the new one,
@@ -230,6 +242,9 @@ class Credentials:
     auth_token: str
     template_id: str
     fw_version: str = "unknown"
+    # Set when the app assigned a template during pairing (template_id
+    # "DYNAMIC" + fw_type "DYNAMIC" -> the user picked one in the app)
+    assigned_template_id: Optional[str] = None
 
     def connection_kwargs(self, qos: int = 1) -> dict:
         """Ready to spread into paho.mqtt.publish.single()/multiple() for a
@@ -320,11 +335,12 @@ class Credentials:
 
         # Phase 2: mandatory device checkin, not a general-purpose publish -
         # see TOPIC_INFO above
+        tmpl = self.assigned_template_id or self.template_id
         payload = {
-            "tmpl": self.template_id,
+            "tmpl": tmpl,
             "ver": self.fw_version,
             "build": _build_date(),
-            "type": self.template_id,
+            "type": tmpl,
             "rxbuff": 1024,
         }
         info = client.publish(TOPIC_INFO, json.dumps(payload), qos=1, retain=True)
@@ -347,7 +363,8 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
                      fw_version: str = "unknown",
                      debug: bool = False,
                      reprovision: bool = False,
-                     configure_network: bool = True) -> Credentials:
+                     configure_network: bool = True,
+                     fw_type: str = "0") -> Credentials:
     """Returns this machine's Blynk identity for the given template -
     reusing it from local storage if already provisioned (fast, no BLE
     involved), or running BLE provisioning (pairing with the Blynk app) if
@@ -387,6 +404,13 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
     only type the app accepts without asking for network settings) and
     only supplies a token; any WiFi/cellular/static-IP settings it sends
     anyway are ignored.
+
+    fw_type is the "fw_type" the app sees in the BLE info reply. The app
+    uses it for template selection: "DYNAMIC" makes it offer a template
+    picker (newer Android flow, developer accounts only), and with
+    template_id="DYNAMIC" the older flow treats it as a blueprint's template
+    ID and matches the user's template installed from that blueprint. The
+    default "0" means neither.
     """
     if debug or os.environ.get("BLYNK_DEBUG", "").lower() in ("1", "true", "yes"):
         _enable_debug_logging()
@@ -409,7 +433,8 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
         if stored_token and stored_server:
             _print_identity("Using stored credentials", template_id, stored_server, stored_token, store_path)
             return Credentials(server=stored_server, auth_token=stored_token, template_id=template_id,
-                                fw_version=fw_version)
+                                fw_version=fw_version,
+                                assigned_template_id=values.get(_assigned_template_key(template_id)) or None)
 
     if reprovision:
         print(f"Re-pairing template {template_id!r} (ignoring stored credentials at {store_path})...")
@@ -424,7 +449,8 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
         template_name=template_name,
     )
     try:
-        ok = _ble.provision(identity, fw_version=fw_version, configure_network=configure_network)
+        ok = _ble.provision(identity, fw_version=fw_version, configure_network=configure_network,
+                            fw_type=fw_type)
     except KeyboardInterrupt:
         # Still propagate Ctrl-C (a library shouldn't swallow it, and it
         # must not become a ProvisioningError a caller might retry on) -
@@ -437,5 +463,7 @@ def get_credentials(template_id: str, *, server: Optional[str] = None,
     if not ok or not identity.auth_token or not identity.server:
         raise ProvisioningError("BLE provisioning did not complete - abandoned, timed out, or failed")
     _print_identity("Provisioned", template_id, identity.server, identity.auth_token, store_path)
+    if identity.assigned_template_id:
+        print(f"The app assigned template {identity.assigned_template_id}")
     return Credentials(server=identity.server, auth_token=identity.auth_token, template_id=template_id,
-                        fw_version=fw_version)
+                        fw_version=fw_version, assigned_template_id=identity.assigned_template_id)
